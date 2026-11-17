@@ -16,13 +16,20 @@ Exemplos:
 
 import argparse
 import os
+import subprocess
 import sys
 from typing import Optional
 
 import yt_dlp
 from dotenv import load_dotenv
 
-from downloader import clean_url, download_audio, download_video, get_video_info
+from downloader import (
+    clean_url,
+    download_audio,
+    download_video,
+    get_video_info,
+    make_compatible,
+)
 
 load_dotenv()
 
@@ -77,6 +84,11 @@ def parse_args() -> argparse.Namespace:
         "-i", "--info",
         action="store_true",
         help="Exibir informações do vídeo sem fazer o download",
+    )
+    parser.add_argument(
+        "--compat",
+        action="store_true",
+        help="Converter o vídeo para H.264 + AAC, compatível com WhatsApp, Teams etc. (requer ffmpeg)",
     )
 
     # --- Transcrição e resumo ---
@@ -245,7 +257,18 @@ def main() -> None:
         print_login_hint(e, cookies)
         sys.exit(1)
 
-    print(f'\nArquivo salvo em: {args.output}/')
+    if args.compat and not args.audio:
+        print("\nConvertendo para formato compatível (H.264 + AAC)...")
+        try:
+            filepath, converted = make_compatible(filepath)
+            if converted:
+                print("  Conversão concluída.")
+            else:
+                print("  O vídeo já estava em formato compatível.")
+        except (RuntimeError, subprocess.CalledProcessError) as e:
+            print(f"  Não foi possível converter ({e}). O arquivo original foi mantido.")
+
+    print(f'\nArquivo salvo em: {filepath}')
 
     if args.transcribe:
         run_ai_pipeline(filepath, args.provider, args.model, args.whisper_model)

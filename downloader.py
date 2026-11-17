@@ -1,4 +1,7 @@
+import json
 import os
+import shutil
+import subprocess
 from typing import Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -128,6 +131,71 @@ def download_video(
     filepath = _get_filepath(info, os.path.join(output_dir, f"{title}.mp4"))
 
     return title, filepath
+
+
+def _probe_streams(filepath: str) -> dict:
+    """Retorna o primeiro stream de vídeo e de áudio do arquivo, via ffprobe."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "stream=codec_type,codec_name,pix_fmt",
+            "-of", "json", filepath,
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    streams = {}
+    for s in json.loads(result.stdout).get("streams", []):
+        if s.get("codec_type") in ("video", "audio"):
+            streams.setdefault(s["codec_type"], s)
+    return streams
+
+
+def make_compatible(filepath: str) -> Tuple[str, bool]:
+    """
+    Garante um MP4 com vídeo H.264 (yuv420p) e áudio AAC — formato aceito
+    por WhatsApp, Teams, iPhone, editores de vídeo etc.
+
+    Só recodifica o stream que não for compatível; o que já for é copiado
+    sem perda. O arquivo convertido substitui o original.
+
+    Returns:
+        Tupla (caminho_final, houve_conversao).
+    """
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise RuntimeError("ffmpeg/ffprobe não encontrados no PATH")
+
+    streams = _probe_streams(filepath)
+    video, audio = streams.get("video"), streams.get("audio")
+    video_ok = video is None or (
+        video.get("codec_name") == "h264" and video.get("pix_fmt") == "yuv420p"
+    )
+    audio_ok = audio is None or audio.get("codec_name") == "aac"
+    base = os.path.splitext(filepath)[0]
+    final = f"{base}.mp4"
+
+    if video_ok and audio_ok and filepath == final:
+        return filepath, False
+
+    tmp = f"{base}.compat.tmp.mp4"
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", filepath]
+    cmd += ["-c:v", "copy"] if video_ok else [
+        "-c:v", "libx264", "-preset", "slow", "-crf", "22",
+        "-pix_fmt", "yuv420p", "-profile:v", "high",
+    ]
+    cmd += ["-c:a", "copy"] if audio_ok else ["-c:a", "aac", "-b:a", "128k"]
+    cmd += ["-movflags", "+faststart", tmp]
+
+    try:
+        subprocess.run(cmd, check=True)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+    os.replace(tmp, final)
+    if filepath != final:
+        os.remove(filepath)
+    return final, True
 
 
 def download_audio(

@@ -84,6 +84,16 @@ python main.py "https://youtu.be/mpALXah_PBg"
 python main.py "https://www.instagram.com/reel/XXXXXXXXXXX/"
 ```
 
+### Vídeo compatível para compartilhar
+
+Alguns vídeos vêm em codecs como VP9 ou AV1, que certos apps e editores não abrem. Com `--compat`, o arquivo é convertido para **H.264 + AAC**, aceito por WhatsApp, Teams, iPhone, Android e editores de vídeo:
+
+```bash
+python main.py "https://www.instagram.com/reel/XXXXXXXXXXX/" --compat
+```
+
+Só o que não for compatível é recodificado (o que já for é copiado sem perda), e o arquivo convertido substitui o original.
+
 Parâmetros de rastreamento dos links de compartilhamento (`utm_*`, `si`, `igsh`, `srtk`...) são removidos automaticamente.
 
 ### Download + transcrição e resumo
@@ -114,6 +124,7 @@ python main.py --process downloads/meu_audio.mp3 --provider openai
 | `--quality QUALIDADE` | `-q` | Qualidade: `best`, `1080p`, `720p`, `480p`, `360p` | `best` |
 | `--audio` | `-a` | Baixar apenas o áudio em MP3 | — |
 | `--info` | `-i` | Exibir informações sem baixar | — |
+| `--compat` | — | Converter para H.264 + AAC (WhatsApp, Teams etc.) | — |
 | `--cookies ARQUIVO` | `-c` | Arquivo `cookies.txt` de uma sessão logada | `COOKIES_FILE` ou `./cookies.txt` |
 | `--transcribe` | — | Transcrever e resumir após o download | — |
 | `--process ARQUIVO` | — | Transcrever/resumir arquivo existente (sem download) | — |
