@@ -1,16 +1,43 @@
 import os
-from typing import Tuple
+from typing import Optional, Tuple
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import yt_dlp
 
 
 QUALITY_FORMATS = {
-    "best":  "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[height<=1080]",
-    "720p":  "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]",
-    "480p":  "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best[height<=480]",
-    "360p":  "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best[height<=360]",
+    "best":  "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best",
+    "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+    "720p":  "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+    "480p":  "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+    "360p":  "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/bestvideo[height<=360]+bestaudio/best[height<=360]/best",
 }
+
+# Parâmetros de rastreamento adicionados pelos botões de "compartilhar".
+# Não afetam qual vídeo é baixado e identificam quem compartilhou o link.
+_TRACKING_PARAMS = {"si", "srtk", "igsh", "igshid", "feature", "fbclid"}
+
+# O título vem antes; o ID evita que posts com o mesmo título
+# (ex.: "Video by usuario" no Instagram) sobrescrevam uns aos outros.
+_OUTTMPL = "%(title).150B [%(id)s].%(ext)s"
+
+
+def clean_url(url: str) -> str:
+    """Remove parâmetros de rastreamento (utm_*, si, srtk, igsh...) do link."""
+    parts = urlsplit(url.strip())
+    query = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if k not in _TRACKING_PARAMS and not k.startswith("utm_")
+    ]
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+def _base_opts(cookies: Optional[str]) -> dict:
+    opts = {"quiet": True, "no_warnings": True}
+    if cookies:
+        opts["cookiefile"] = cookies
+    return opts
 
 
 def _build_progress_hook():
@@ -56,24 +83,28 @@ def _get_filepath(info: dict, fallback: str) -> str:
     return fallback
 
 
-def get_video_info(url: str) -> dict:
+def get_video_info(url: str, cookies: Optional[str] = None) -> dict:
     """Retorna metadados do vídeo sem fazer download."""
-    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    ydl_opts = {**_base_opts(cookies), "skip_download": True}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     return {
         "title": info.get("title", "Desconhecido"),
         "duration": info.get("duration_string", "?"),
-        "uploader": info.get("uploader", "?"),
+        "uploader": info.get("uploader") or info.get("channel") or "?",
         "view_count": info.get("view_count", 0),
+        "platform": info.get("extractor_key", "?"),
     }
 
 
 def download_video(
-    url: str, output_dir: str = "./downloads", quality: str = "best"
+    url: str,
+    output_dir: str = "./downloads",
+    quality: str = "best",
+    cookies: Optional[str] = None,
 ) -> Tuple[str, str]:
     """
-    Faz o download de um vídeo do YouTube em formato MP4.
+    Faz o download de um vídeo (YouTube, Instagram...) em formato MP4.
 
     Returns:
         Tupla (título, caminho_completo_do_arquivo).
@@ -83,12 +114,11 @@ def download_video(
     format_str = QUALITY_FORMATS.get(quality, QUALITY_FORMATS["best"])
 
     ydl_opts = {
+        **_base_opts(cookies),
         "format": format_str,
-        "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
+        "outtmpl": os.path.join(output_dir, _OUTTMPL),
         "merge_output_format": "mp4",
         "progress_hooks": [_build_progress_hook()],
-        "quiet": True,
-        "no_warnings": True,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -100,7 +130,9 @@ def download_video(
     return title, filepath
 
 
-def download_audio(url: str, output_dir: str = "./downloads") -> Tuple[str, str]:
+def download_audio(
+    url: str, output_dir: str = "./downloads", cookies: Optional[str] = None
+) -> Tuple[str, str]:
     """
     Faz o download apenas do áudio do vídeo e converte para MP3.
 
@@ -112,8 +144,9 @@ def download_audio(url: str, output_dir: str = "./downloads") -> Tuple[str, str]
     os.makedirs(output_dir, exist_ok=True)
 
     ydl_opts = {
+        **_base_opts(cookies),
         "format": "bestaudio/best",
-        "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
+        "outtmpl": os.path.join(output_dir, _OUTTMPL),
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -122,8 +155,6 @@ def download_audio(url: str, output_dir: str = "./downloads") -> Tuple[str, str]
             }
         ],
         "progress_hooks": [_build_progress_hook()],
-        "quiet": True,
-        "no_warnings": True,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:

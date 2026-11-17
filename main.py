@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-YouTube Downloader — baixe vídeos ou áudio do YouTube com um único comando.
+Video Downloader — baixe vídeos ou áudio do YouTube e do Instagram com um único comando.
 
 Uso básico:
     python main.py <url>
@@ -9,6 +9,7 @@ Exemplos:
     python main.py "https://youtu.be/dQw4w9WgXcQ"
     python main.py "https://youtu.be/dQw4w9WgXcQ" --quality 720p
     python main.py "https://youtu.be/dQw4w9WgXcQ" --audio
+    python main.py "https://www.instagram.com/reel/XXXXXXXXXXX/" --cookies cookies.txt
     python main.py "https://youtu.be/dQw4w9WgXcQ" --transcribe --provider anthropic
     python main.py --process downloads/video.mp4 --provider openai --model gpt-4o
 """
@@ -16,21 +17,26 @@ Exemplos:
 import argparse
 import os
 import sys
+from typing import Optional
 
 import yt_dlp
+from dotenv import load_dotenv
 
-from downloader import download_audio, download_video, get_video_info
+from downloader import clean_url, download_audio, download_video, get_video_info
+
+load_dotenv()
 
 VALID_QUALITIES = ["best", "1080p", "720p", "480p", "360p"]
 VALID_PROVIDERS = ["anthropic", "openai", "gemini"]
 VALID_WHISPER_MODELS = ["tiny", "base", "small", "medium", "large"]
 DEFAULT_OUTPUT = "./downloads"
+DEFAULT_COOKIES = "cookies.txt"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="yt-downloader",
-        description="Baixa vídeos ou áudio do YouTube a partir do link de compartilhamento.",
+        prog="video-downloader",
+        description="Baixa vídeos ou áudio do YouTube e do Instagram a partir do link de compartilhamento.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -38,7 +44,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "url",
         nargs="?",
-        help="Link do vídeo no YouTube (ex: https://youtu.be/xxxxx)",
+        help="Link do vídeo no YouTube ou Instagram (ex: https://youtu.be/xxxxx)",
+    )
+    parser.add_argument(
+        "-c", "--cookies",
+        default=None,
+        metavar="ARQUIVO",
+        help=(
+            "Arquivo cookies.txt de uma sessão logada (necessário para o Instagram). "
+            f"Padrão: variável COOKIES_FILE do .env ou ./{DEFAULT_COOKIES}, se existir"
+        ),
     )
     parser.add_argument(
         "-o", "--output",
@@ -102,7 +117,7 @@ def parse_args() -> argparse.Namespace:
 
 def ask_url() -> str:
     print("=" * 50)
-    print("  YouTube Downloader")
+    print("  Video Downloader (YouTube / Instagram)")
     print("=" * 50)
     url = input("\nCole o link do vídeo: ").strip()
     if not url:
@@ -111,8 +126,41 @@ def ask_url() -> str:
     return url
 
 
+def resolve_cookies(cli_value: Optional[str]) -> Optional[str]:
+    """
+    Define o arquivo de cookies a usar, nesta ordem:
+    --cookies  >  COOKIES_FILE no .env  >  ./cookies.txt (se existir).
+    Encerra com erro se um arquivo foi indicado explicitamente e não existe.
+    """
+    explicit = cli_value or os.getenv("COOKIES_FILE")
+    if explicit:
+        if not os.path.isfile(explicit):
+            print(f"Arquivo de cookies não encontrado: {explicit}")
+            sys.exit(1)
+        return explicit
+    return DEFAULT_COOKIES if os.path.isfile(DEFAULT_COOKIES) else None
+
+
+def print_login_hint(error: Exception, cookies: Optional[str]) -> None:
+    msg = str(error).lower()
+    if "login" not in msg and "cookies" not in msg:
+        return
+    if cookies:
+        print(
+            f"\nDica: o arquivo '{cookies}' parece não ter uma sessão válida. "
+            "Exporte os cookies de novo com o navegador logado na conta."
+        )
+    else:
+        print(
+            "\nDica: esta plataforma exige login. Exporte os cookies do navegador "
+            f"(logado na conta) para '{DEFAULT_COOKIES}' na pasta do projeto "
+            "ou indique o arquivo com --cookies. Veja o README."
+        )
+
+
 def print_info(info: dict) -> None:
-    print(f"\n  Título:      {info['title']}")
+    print(f"\n  Plataforma:  {info['platform']}")
+    print(f"  Título:      {info['title']}")
     print(f"  Duração:     {info['duration']}")
     print(f"  Canal:       {info['uploader']}")
     views = f"{info['view_count']:,}".replace(",", ".") if info["view_count"] else "?"
@@ -162,14 +210,18 @@ def main() -> None:
         run_ai_pipeline(args.process, args.provider, args.model, args.whisper_model)
         return
 
-    url = args.url or ask_url()
+    url = clean_url(args.url or ask_url())
+    cookies = resolve_cookies(args.cookies)
 
     print(f"\nBuscando informações do vídeo...")
+    if cookies:
+        print(f"  Usando cookies de: {cookies}")
 
     try:
-        info = get_video_info(url)
+        info = get_video_info(url, cookies=cookies)
     except yt_dlp.utils.DownloadError as e:
         print(f"\nErro ao acessar o vídeo: {e}")
+        print_login_hint(e, cookies)
         sys.exit(1)
 
     print_info(info)
@@ -183,11 +235,14 @@ def main() -> None:
 
     try:
         if args.audio:
-            title, filepath = download_audio(url, output_dir=args.output)
+            title, filepath = download_audio(url, output_dir=args.output, cookies=cookies)
         else:
-            title, filepath = download_video(url, output_dir=args.output, quality=args.quality)
+            title, filepath = download_video(
+                url, output_dir=args.output, quality=args.quality, cookies=cookies
+            )
     except yt_dlp.utils.DownloadError as e:
         print(f"\nErro durante o download: {e}")
+        print_login_hint(e, cookies)
         sys.exit(1)
 
     print(f'\nArquivo salvo em: {args.output}/')

@@ -1,9 +1,10 @@
-# YouTube Downloader
+# Video Downloader (YouTube / Instagram)
 
-Ferramenta de linha de comando em Python para baixar vídeos e áudios do YouTube, com suporte a transcrição automática, tradução e resumo gerado por IA.
+Ferramenta de linha de comando em Python para baixar vídeos e áudios do YouTube e do Instagram, com suporte a transcrição automática, tradução e resumo gerado por IA.
 
 ## Funcionalidades
 
+- Download de vídeos do **YouTube** e do **Instagram** (reels e posts com vídeo)
 - Download de vídeo em MP4 com seleção de qualidade (best, 1080p, 720p, 480p, 360p)
 - Download de áudio em MP3
 - Barra de progresso no terminal
@@ -56,6 +57,18 @@ GEMINI_API_KEY=AIza...
 
 Você só precisa preencher a chave do provedor que for usar.
 
+## Instagram: cookies de sessão
+
+O Instagram exige login para baixar a maioria dos vídeos, inclusive reels públicos. A ferramenta não usa usuário e senha: ela reaproveita os **cookies** de uma sessão em que você já está logado no navegador.
+
+1. Instale a extensão **[Get cookies.txt LOCALLY](https://github.com/kairi003/Get-cookies.txt-LOCALLY)** (código aberto, não envia dados para fora do computador).
+2. Abra o `instagram.com` logado na sua conta, clique na extensão e exporte.
+3. Salve o arquivo como `cookies.txt` na pasta do projeto.
+
+O arquivo é usado automaticamente quando existe. Para usar outro caminho, informe `--cookies ARQUIVO` ou defina `COOKIES_FILE` no `.env`.
+
+> **Atenção:** o `cookies.txt` dá acesso à sua conta, assim como a senha. Ele já está no `.gitignore` — nunca o compartilhe nem o versione. Se ele parar de funcionar (sessão expirada), exporte de novo.
+
 ## Como usar
 
 ### Download simples
@@ -66,7 +79,12 @@ python main.py
 
 # Passando o link diretamente
 python main.py "https://youtu.be/mpALXah_PBg"
+
+# Instagram (usa ./cookies.txt automaticamente)
+python main.py "https://www.instagram.com/reel/XXXXXXXXXXX/"
 ```
+
+Parâmetros de rastreamento dos links de compartilhamento (`utm_*`, `si`, `igsh`, `srtk`...) são removidos automaticamente.
 
 ### Download + transcrição e resumo
 
@@ -96,6 +114,7 @@ python main.py --process downloads/meu_audio.mp3 --provider openai
 | `--quality QUALIDADE` | `-q` | Qualidade: `best`, `1080p`, `720p`, `480p`, `360p` | `best` |
 | `--audio` | `-a` | Baixar apenas o áudio em MP3 | — |
 | `--info` | `-i` | Exibir informações sem baixar | — |
+| `--cookies ARQUIVO` | `-c` | Arquivo `cookies.txt` de uma sessão logada | `COOKIES_FILE` ou `./cookies.txt` |
 | `--transcribe` | — | Transcrever e resumir após o download | — |
 | `--process ARQUIVO` | — | Transcrever/resumir arquivo existente (sem download) | — |
 | `--provider PROVEDOR` | — | Provedor de IA: `anthropic`, `openai`, `gemini` | `anthropic` |
@@ -116,9 +135,11 @@ O resultado é salvo em um arquivo `.txt` no mesmo local do vídeo/áudio, com o
 
 ```
 downloads/
-├── Meu Video.mp4
-└── Meu Video_resumo.txt   ← transcrição original + tradução (se necessário) + resumo
+├── Meu Video [dQw4w9WgXcQ].mp4
+└── Meu Video [dQw4w9WgXcQ]_resumo.txt   ← transcrição original + tradução (se necessário) + resumo
 ```
+
+O ID do vídeo entre colchetes evita que vídeos com o mesmo título (comum no Instagram, ex.: "Video by usuario") se sobrescrevam.
 
 ## Estrutura do projeto
 
@@ -128,7 +149,7 @@ download-video-youtube/
 ├── downloader.py    # Lógica de download (yt-dlp)
 ├── transcriber.py   # Transcrição com Whisper
 ├── summarizer.py    # Tradução e resumo com IA (multi-provedor)
-├── .env.example     # Modelo para as chaves de API
+├── .env.example     # Modelo para as chaves de API e cookies
 ├── requirements.txt # Dependências
 └── .gitignore
 ```
@@ -137,7 +158,7 @@ download-video-youtube/
 
 | Pacote | Descrição |
 | --- | --- |
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Download de vídeos do YouTube |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Download de vídeos do YouTube e do Instagram |
 | [openai-whisper](https://github.com/openai/whisper) | Transcrição de áudio/vídeo |
 | [anthropic](https://github.com/anthropics/anthropic-sdk-python) | SDK Claude (Anthropic) |
 | [openai](https://github.com/openai/openai-python) | SDK GPT (OpenAI) |

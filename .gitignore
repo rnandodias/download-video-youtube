@@ -33,6 +33,11 @@ build/
 # Variáveis de ambiente (chaves de API)
 .env
 
+# Cookies de sessão (dão acesso à conta — nunca versionar)
+cookies.txt
+*.cookies
+*cookies*.txt
+
 # Cobertura de testes
 .coverage
 htmlcov/
