@@ -30,6 +30,9 @@ build/
 *.egg-info/
 *.egg
 
+# Variáveis de ambiente (chaves de API)
+.env
+
 # Cobertura de testes
 .coverage
 htmlcov/

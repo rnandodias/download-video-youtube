@@ -9,10 +9,12 @@ Exemplos:
     python main.py "https://youtu.be/dQw4w9WgXcQ"
     python main.py "https://youtu.be/dQw4w9WgXcQ" --quality 720p
     python main.py "https://youtu.be/dQw4w9WgXcQ" --audio
-    python main.py "https://youtu.be/dQw4w9WgXcQ" --output ~/Videos
+    python main.py "https://youtu.be/dQw4w9WgXcQ" --transcribe --provider anthropic
+    python main.py --process downloads/video.mp4 --provider openai --model gpt-4o
 """
 
 import argparse
+import os
 import sys
 
 import yt_dlp
@@ -20,6 +22,8 @@ import yt_dlp
 from downloader import download_audio, download_video, get_video_info
 
 VALID_QUALITIES = ["best", "1080p", "720p", "480p", "360p"]
+VALID_PROVIDERS = ["anthropic", "openai", "gemini"]
+VALID_WHISPER_MODELS = ["tiny", "base", "small", "medium", "large"]
 DEFAULT_OUTPUT = "./downloads"
 
 
@@ -60,6 +64,39 @@ def parse_args() -> argparse.Namespace:
         help="Exibir informações do vídeo sem fazer o download",
     )
 
+    # --- Transcrição e resumo ---
+    parser.add_argument(
+        "--transcribe",
+        action="store_true",
+        help="Transcrever e resumir o vídeo após o download",
+    )
+    parser.add_argument(
+        "--process",
+        metavar="ARQUIVO",
+        help="Transcrever e resumir um arquivo existente na pasta downloads (ignora URL e download)",
+    )
+    parser.add_argument(
+        "--provider",
+        choices=VALID_PROVIDERS,
+        default="anthropic",
+        metavar="PROVEDOR",
+        help=f"Provedor de IA para tradução e resumo: {', '.join(VALID_PROVIDERS)} (padrão: anthropic)",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        metavar="MODELO",
+        help="Modelo de IA a usar (padrão: claude-sonnet-4-6 / gpt-4o / gemini-2.0-flash)",
+    )
+    parser.add_argument(
+        "--whisper-model",
+        default="large",
+        choices=VALID_WHISPER_MODELS,
+        metavar="WHISPER",
+        dest="whisper_model",
+        help=f"Modelo Whisper para transcrição: {', '.join(VALID_WHISPER_MODELS)} (padrão: large)",
+    )
+
     return parser.parse_args()
 
 
@@ -82,8 +119,48 @@ def print_info(info: dict) -> None:
     print(f"  Visualiz.:   {views}")
 
 
+def run_ai_pipeline(
+    file_path: str,
+    provider: str,
+    model: str,
+    whisper_model: str,
+) -> None:
+    """Transcreve o arquivo e gera tradução + resumo com IA."""
+    from transcriber import transcribe
+    from summarizer import summarize, DEFAULT_MODELS
+
+    print(f"\nIniciando pipeline de transcrição e resumo...")
+
+    result = transcribe(file_path, model_size=whisper_model)
+    transcript = result["text"]
+    language = result["language"]
+
+    print(f"  Idioma detectado: {language}")
+
+    effective_model = model or DEFAULT_MODELS[provider]
+    print(f"  Gerando resumo com {provider} / {effective_model}...")
+
+    summary = summarize(transcript, language, provider, model)
+
+    base = os.path.splitext(file_path)[0]
+    output_path = f"{base}_resumo.txt"
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(f"# Transcrição Original\n\n{transcript}\n\n---\n\n{summary}")
+
+    print(f"\n  Resultado salvo em: {output_path}")
+
+
 def main() -> None:
     args = parse_args()
+
+    # Modo --process: processa arquivo existente, sem download
+    if args.process:
+        if not os.path.exists(args.process):
+            print(f"Arquivo não encontrado: {args.process}")
+            sys.exit(1)
+        run_ai_pipeline(args.process, args.provider, args.model, args.whisper_model)
+        return
 
     url = args.url or ask_url()
 
@@ -106,14 +183,17 @@ def main() -> None:
 
     try:
         if args.audio:
-            title = download_audio(url, output_dir=args.output)
+            title, filepath = download_audio(url, output_dir=args.output)
         else:
-            title = download_video(url, output_dir=args.output, quality=args.quality)
+            title, filepath = download_video(url, output_dir=args.output, quality=args.quality)
     except yt_dlp.utils.DownloadError as e:
         print(f"\nErro durante o download: {e}")
         sys.exit(1)
 
     print(f'\nArquivo salvo em: {args.output}/')
+
+    if args.transcribe:
+        run_ai_pipeline(filepath, args.provider, args.model, args.whisper_model)
 
 
 if __name__ == "__main__":

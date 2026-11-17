@@ -1,4 +1,6 @@
 import os
+from typing import Tuple
+
 import yt_dlp
 
 
@@ -42,6 +44,18 @@ def _build_progress_hook():
     return hook
 
 
+def _get_filepath(info: dict, fallback: str) -> str:
+    """
+    Extrai o caminho real do arquivo a partir do info dict do yt-dlp.
+    Usa requested_downloads[0]['filepath'], que contém o caminho exato
+    após sanitização de caracteres especiais (ex: '/' vira '⧸').
+    """
+    requested = info.get("requested_downloads") or []
+    if requested and requested[0].get("filepath"):
+        return requested[0]["filepath"]
+    return fallback
+
+
 def get_video_info(url: str) -> dict:
     """Retorna metadados do vídeo sem fazer download."""
     ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
@@ -55,17 +69,14 @@ def get_video_info(url: str) -> dict:
     }
 
 
-def download_video(url: str, output_dir: str = "./downloads", quality: str = "best") -> str:
+def download_video(
+    url: str, output_dir: str = "./downloads", quality: str = "best"
+) -> Tuple[str, str]:
     """
     Faz o download de um vídeo do YouTube em formato MP4.
 
-    Args:
-        url:        Link do vídeo.
-        output_dir: Pasta de destino.
-        quality:    Qualidade desejada (best, 1080p, 720p, 480p, 360p).
-
     Returns:
-        Título do vídeo baixado.
+        Tupla (título, caminho_completo_do_arquivo).
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -83,19 +94,18 @@ def download_video(url: str, output_dir: str = "./downloads", quality: str = "be
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
 
-    return info.get("title", "Desconhecido")
+    title = info.get("title", "Desconhecido")
+    filepath = _get_filepath(info, os.path.join(output_dir, f"{title}.mp4"))
+
+    return title, filepath
 
 
-def download_audio(url: str, output_dir: str = "./downloads") -> str:
+def download_audio(url: str, output_dir: str = "./downloads") -> Tuple[str, str]:
     """
     Faz o download apenas do áudio do vídeo e converte para MP3.
 
-    Args:
-        url:        Link do vídeo.
-        output_dir: Pasta de destino.
-
     Returns:
-        Título do vídeo baixado.
+        Tupla (título, caminho_completo_do_arquivo).
 
     Nota: requer ffmpeg instalado no sistema.
     """
@@ -119,4 +129,7 @@ def download_audio(url: str, output_dir: str = "./downloads") -> str:
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
 
-    return info.get("title", "Desconhecido")
+    title = info.get("title", "Desconhecido")
+    filepath = _get_filepath(info, os.path.join(output_dir, f"{title}.mp3"))
+
+    return title, filepath
